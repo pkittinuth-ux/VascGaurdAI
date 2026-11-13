@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useLanguage } from '../LanguageContext';
+import mqtt from 'mqtt';
 import {
   Play, RotateCcw, Printer, Building2, ThermometerSun,
   Heart, Activity, Cpu, Shield, ShieldAlert, ShieldCheck,
@@ -473,33 +474,77 @@ export default function RobotSimulation() {
   const [liveDevice, setLiveDevice] = useState(null);
   const timerRef = useRef(null);
 
-  // Poll local receiver on port 3001 for live XIAO ESP32-C6 data
+  // Live XIAO ESP32-C6 Data: Direct HiveMQ Cloud WebSocket (Vercel-ready) + Local Bridge fallback
   useEffect(() => {
-    const checkLiveFeed = async () => {
-      try {
-        const res = await fetch('http://localhost:3001/api/telemetry/latest');
-        if (res.status === 200) {
-          const payload = await res.json();
-          if (payload && payload.deviceId) {
-            setLiveDevice(payload);
-            const d = payload.data || {};
-            // If real fingers are placed and HR > 0, feed into current reading
-            if (d.heart_rate && d.heart_rate > 30) {
-              setHr(d.heart_rate);
-            }
-            if (d.board_temp_c && parseFloat(d.board_temp_c) > 20) {
-              setTemp(parseFloat(d.board_temp_c));
+    let client = null;
+    try {
+      // Connect to HiveMQ Public WebSocket broker (supports WSS for HTTPS / Vercel!)
+      const brokerUrl = 'wss://broker.hivemq.com:8884/mqtt';
+      const clientId = 'vascguard-web-' + Math.random().toString(16).substring(2, 8);
+      client = mqtt.connect(brokerUrl, {
+        clientId,
+        clean: true,
+        reconnectPeriod: 4000,
+        connectTimeout: 8000,
+      });
+
+      client.on('connect', () => {
+        client.subscribe('tensai/max30102/+/telemetry', (err) => {
+          if (!err) {
+            console.log('[VascGuard Web] Subscribed directly to HiveMQ WSS topic: tensai/max30102/+/telemetry');
+          }
+        });
+      });
+
+      client.on('message', (topic, payloadBuffer) => {
+        try {
+          const raw = payloadBuffer.toString();
+          const d = JSON.parse(raw);
+          const parts = topic.split('/');
+          const deviceId = parts[2] || 'XIAO-C6';
+
+          setLiveDevice({ deviceId, data: d, receivedAt: new Date().toISOString() });
+
+          if (d.heart_rate && d.heart_rate > 30) {
+            setHr(d.heart_rate);
+          }
+          if (d.board_temp_c && parseFloat(d.board_temp_c) > 20) {
+            setTemp(parseFloat(d.board_temp_c));
+          }
+        } catch (e) {
+          console.error('[MQTT Parse Error]', e);
+        }
+      });
+    } catch (err) {
+      console.warn('[Direct MQTT WSS]', err);
+    }
+
+    // Secondary local poll if running on localhost
+    const checkLocalFeed = async () => {
+      if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
+        try {
+          const res = await fetch('http://localhost:3001/api/telemetry/latest');
+          if (res.status === 200) {
+            const payload = await res.json();
+            if (payload && payload.deviceId) {
+              setLiveDevice(payload);
+              const d = payload.data || {};
+              if (d.heart_rate && d.heart_rate > 30) setHr(d.heart_rate);
+              if (d.board_temp_c && parseFloat(d.board_temp_c) > 20) setTemp(parseFloat(d.board_temp_c));
             }
           }
-        }
-      } catch (err) {
-        // Local bridge not running or offline, keep simulated fallback
+        } catch (_) {}
       }
     };
+    checkLocalFeed();
+    const pollInterval = setInterval(checkLocalFeed, 4000);
 
-    checkLiveFeed();
-    const pollInterval = setInterval(checkLiveFeed, 3000);
-    return () => clearInterval(pollInterval);
+    return () => {
+      clearInterval(pollInterval);
+      if (client) {
+        try { client.end(true); } catch (_) {}
+      }
+    };
   }, []);
 
   // Randomize risk outcome
