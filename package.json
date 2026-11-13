@@ -1,0 +1,8 @@
+{
+  "name": "vascguard-ai",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "cd vascguard-dashboard && npm install && npm run build"
+  }
+}
