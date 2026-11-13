@@ -6,3 +6,4 @@
     "build": "cd vascguard-dashboard && npm install && npm run build"
   }
 }
+
