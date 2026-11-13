@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>XIAO ESP32-C6 • MAX30102 Live Telemetry Receiver</title>
+  <!-- Tailwind CSS CDN for instant gorgeous styling -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+    }
+    .font-mono {
+      font-family: 'JetBrains Mono', monospace;
+    }
+    @keyframes heartbeat {
+      0%, 100% { transform: scale(1); }
+      15% { transform: scale(1.25); }
+      30% { transform: scale(1.05); }
+      45% { transform: scale(1.2); }
+    }
+    .animate-heart {
+      animation: heartbeat 1s ease-in-out infinite;
+      transform-origin: center;
+    }
+    @keyframes pulse-ring {
+      0% { transform: scale(0.9); opacity: 1; }
+      100% { transform: scale(2); opacity: 0; }
+    }
+    .pulse-ring::before {
+      content: '';
+      position: absolute;
+      inset: -2px;
+      border-radius: 9999px;
+      background: inherit;
+      animation: pulse-ring 1.8s cubic-bezier(0.24, 0, 0.38, 1) infinite;
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col antialiased selection:bg-cyan-500 selection:text-white">
+
+  <!-- Top Navigation Header -->
+  <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-40">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500 via-blue-600 to-indigo-600 flex items-center justify-center shadow-lg shadow-cyan-500/20">
+          <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+          </svg>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="text-base font-bold text-white tracking-tight">XIAO ESP32-C6 Telemetry Bridge</h1>
+            <span class="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-400 border border-cyan-800">
+              MAX30102 I2C
+            </span>
+          </div>
+          <p class="text-xs text-slate-400">Local Receiver Server • Port 3001</p>
+        </div>
+      </div>
+
+      <!-- Live status tags -->
+      <div class="flex items-center gap-3">
+        <div id="mqtt-badge" class="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800/80">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 pulse-ring relative"></span>
+          <span id="mqtt-status-text">HiveMQ: Connected</span>
+        </div>
+
+        <a href="http://localhost:5173" target="_blank" class="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 transition border border-slate-700">
+          <span>Open VascGuard AI (5173)</span>
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Body -->
+  <main class="max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 flex-1 space-y-6">
+
+    <!-- Connection Info Banner -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-sm">
+        <div class="flex items-center justify-between text-xs text-slate-400 mb-1">
+          <span>MQTT Broker</span>
+          <span class="text-emerald-400 font-mono">1883</span>
+        </div>
+        <p class="text-sm font-semibold text-slate-200 truncate">broker.hivemq.com</p>
+        <p class="text-[11px] text-slate-500 mt-1 font-mono">TCP / Unencrypted</p>
+      </div>
+
+      <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-sm">
+        <div class="flex items-center justify-between text-xs text-slate-400 mb-1">
+          <span>Subscribed Topic</span>
+          <span class="text-cyan-400">Wildcard</span>
+        </div>
+        <p class="text-sm font-semibold font-mono text-cyan-300 truncate">tensai/max30102/+/telemetry</p>
+        <p class="text-[11px] text-slate-500 mt-1">Auto-matches any MAC device</p>
+      </div>
+
+      <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-sm">
+        <div class="flex items-center justify-between text-xs text-slate-400 mb-1">
+          <span>Active Device</span>
+          <span id="device-pill" class="text-slate-500 text-[10px]">Listening...</span>
+        </div>
+        <p id="active-device-id" class="text-sm font-semibold font-mono text-slate-200 truncate">Waiting for packet...</p>
+        <p id="last-seen-text" class="text-[11px] text-slate-500 mt-1">Ready for ESP32 connection</p>
+      </div>
+
+      <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-sm">
+        <div class="flex items-center justify-between text-xs text-slate-400 mb-1">
+          <span>Total Packets</span>
+          <span class="text-emerald-400 text-[10px]">Live</span>
+        </div>
+        <p id="total-packets" class="text-2xl font-bold font-mono text-white">0</p>
+        <p id="packet-interval" class="text-[11px] text-slate-500 mt-0.5">Interval ~4000ms</p>
+      </div>
+    </div>
+
+    <!-- Live Sensor Cards (Heart Rate, SpO2, Temperature, Uptime) -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+
+      <!-- Heart Rate Card -->
+      <div class="bg-gradient-to-b from-slate-900 to-slate-900/80 border border-red-500/20 rounded-3xl p-6 relative overflow-hidden shadow-xl">
+        <div class="absolute -right-6 -bottom-6 w-32 h-32 bg-red-500/10 rounded-full blur-2xl pointer-events-none"></div>
+        <div class="flex items-center justify-between mb-4">
+          <div class="flex items-center gap-2">
+            <div class="w-10 h-10 rounded-2xl bg-red-500/10 border border-red-500/30 flex items-center justify-center">
+              <svg id="heart-icon" class="w-6 h-6 text-red-500" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+              </svg>
+            </div>
+            <div>
+              <h2 class="text-sm font-bold text-slate-300 uppercase tracking-wider">Heart Rate</h2>
+              <p class="text-xs text-slate-500">MAX30102 PPG Pulse</p>
+            </div>
+          </div>
+          <span id="hr-status" class="text-xs px-2.5 py-1 rounded-full font-semibold bg-slate-800 text-slate-400">Standby</span>
+        </div>
+
+        <div class="flex items-baseline gap-3 my-4">
+          <span id="val-heart-rate" class="text-6xl font-black font-mono tracking-tight text-white">--</span>
+          <span class="text-slate-400 font-semibold text-lg">bpm</span>
+        </div>
+
+        <!-- Pulse Canvas Graph -->
+        <div class="h-16 w-full bg-slate-950/60 rounded-xl overflow-hidden p-1 border border-slate-800/80">
+          <canvas id="pulse-canvas" class="w-full h-full"></canvas>
+        </div>
+      </div>
+
+      <!-- SpO2 Blood Oxygen Card -->
+      <div class="bg-gradient-to-b from-slate-900 to-slate-900/80 border border-cyan-500/20 rounded-3xl p-6 relative overflow-hidden shadow-xl">
+        <div class="absolute -right-6 -bottom-6 w-32 h-32 bg-cyan-500/10 rounded-full blur-2xl pointer-events-none"></div>
+        <div class="flex items-center justify-between mb-4">
+          <div class="flex items-center gap-2">
+            <div class="w-10 h-10 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center">
+              <svg class="w-6 h-6 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+              </svg>
+            </div>
+            <div>
+              <h2 class="text-sm font-bold text-slate-300 uppercase tracking-wider">Blood Oxygen</h2>
+              <p class="text-xs text-slate-500">SpO2 Percentage</p>
+            </div>
+          </div>
+          <span id="spo2-status" class="text-xs px-2.5 py-1 rounded-full font-semibold bg-slate-800 text-slate-400">Standby</span>
+        </div>
+
+        <div class="flex items-baseline gap-3 my-4">
+          <span id="val-spo2" class="text-6xl font-black font-mono tracking-tight text-white">--</span>
+          <span class="text-slate-400 font-semibold text-lg">%</span>
+        </div>
+
+        <!-- Progress bar -->
+        <div class="space-y-1.5">
+          <div class="h-2.5 w-full bg-slate-950 rounded-full overflow-hidden border border-slate-800">
+            <div id="spo2-bar" class="h-full bg-gradient-to-r from-cyan-500 to-blue-500 transition-all duration-700 rounded-full" style="width: 0%"></div>
+          </div>
+          <div class="flex justify-between text-[10px] text-slate-500 font-mono">
+            <span>Critical &lt;90%</span>
+            <span>Warning 90-94%</span>
+            <span>Normal &ge;95%</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Temperature & Microcontroller Meta Card -->
+      <div class="bg-gradient-to-b from-slate-900 to-slate-900/80 border border-amber-500/20 rounded-3xl p-6 relative overflow-hidden shadow-xl flex flex-col justify-between">
+        <div>
+          <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-2">
+              <div class="w-10 h-10 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center">
+                <svg class="w-6 h-6 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+              </div>
+              <div>
+                <h2 class="text-sm font-bold text-slate-300 uppercase tracking-wider">Board Temp</h2>
+                <p class="text-xs text-slate-500">MAX30102 Die Sensor</p>
+              </div>
+            </div>
+            <span class="text-xs px-2.5 py-1 rounded-full font-semibold bg-amber-950 text-amber-400 border border-amber-800/60">I2C D4/D5</span>
+          </div>
+
+          <div class="flex items-baseline gap-3 my-2">
+            <span id="val-temp" class="text-5xl font-black font-mono tracking-tight text-white">--</span>
+            <span class="text-slate-400 font-semibold text-lg">°C</span>
+          </div>
+        </div>
+
+        <div class="pt-4 border-t border-slate-800/80 space-y-2 text-xs">
+          <div class="flex items-center justify-between">
+            <span class="text-slate-400">MCU Uptime</span>
+            <span id="val-uptime" class="font-mono font-semibold text-slate-200">--</span>
+          </div>
+          <div class="flex items-center justify-between">
+            <span class="text-slate-400">Payload Source</span>
+            <span class="font-mono text-cyan-400">readAndPublish()</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Control Buttons & Test Suite -->
+    <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 flex flex-wrap items-center justify-between gap-4">
+      <div class="flex items-center gap-2">
+        <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Testing & Debug:</span>
+        <button id="btn-publish-test" class="px-4 py-2 rounded-xl text-xs font-semibold bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white shadow-md shadow-cyan-900/40 transition flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
+          Publish Sample via HiveMQ
+        </button>
+        <button id="btn-simulate-local" class="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition flex items-center gap-2">
+          <span>Inject Local Packet</span>
+        </button>
+      </div>
+
+      <div class="flex items-center gap-3">
+        <span id="test-toast" class="text-xs text-emerald-400 hidden font-medium">Message published to topic!</span>
+        <button id="btn-clear-log" class="text-xs text-slate-500 hover:text-slate-300 transition">Clear Log</button>
+      </div>
+    </div>
+
+    <!-- Real-time Packet Stream Table & JSON Inspector -->
+    <div class="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
+      <div class="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <svg class="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16m-7 6h7" />
+          </svg>
+          <h3 class="font-bold text-white text-sm">Live Inbound MQTT Telemetry Feed</h3>
+        </div>
+        <span class="text-xs text-slate-400 font-mono">Last 30 packets</span>
+      </div>
+
+      <div class="overflow-x-auto max-h-96 overflow-y-auto">
+        <table class="w-full text-left text-xs font-mono">
+          <thead class="bg-slate-950 text-slate-400 border-b border-slate-800 sticky top-0">
+            <tr>
+              <th class="py-3 px-4">#</th>
+              <th class="py-3 px-4">Time</th>
+              <th class="py-3 px-4">Device ID (MAC)</th>
+              <th class="py-3 px-4">Heart Rate</th>
+              <th class="py-3 px-4">SpO2</th>
+              <th class="py-3 px-4">Board Temp</th>
+              <th class="py-3 px-4">Raw JSON Payload</th>
+            </tr>
+          </thead>
+          <tbody id="telemetry-table-body" class="divide-y divide-slate-800/60 text-slate-300">
+            <tr id="empty-row">
+              <td colspan="7" class="py-8 text-center text-slate-500">
+                Waiting for incoming packets from Seeed Studio XIAO ESP32-C6...
+                <br/><span class="text-[11px] text-slate-600">Flash your board with the provided Arduino code and ensure Wi-Fi connects to "the one portfolio".</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="border-t border-slate-900 bg-slate-950 py-4 text-center text-xs text-slate-600">
+    VascGuard AI • XIAO ESP32-C6 Telemetry Bridge • Connected to HiveMQ Broker 1883
+  </footer>
+
+  <!-- Frontend Logic & WebSocket Script -->
+  <script>
+    const tableBody = document.getElementById('telemetry-table-body');
+    const emptyRow = document.getElementById('empty-row');
+    const valHr = document.getElementById('val-heart-rate');
+    const valSpo2 = document.getElementById('val-spo2');
+    const valTemp = document.getElementById('val-temp');
+    const valUptime = document.getElementById('val-uptime');
+    const spo2Bar = document.getElementById('spo2-bar');
+    const spo2Status = document.getElementById('spo2-status');
+    const hrStatus = document.getElementById('hr-status');
+    const totalPackets = document.getElementById('total-packets');
+    const activeDeviceId = document.getElementById('active-device-id');
+    const lastSeenText = document.getElementById('last-seen-text');
+    const devicePill = document.getElementById('device-pill');
+    const mqttBadge = document.getElementById('mqtt-badge');
+    const mqttStatusText = document.getElementById('mqtt-status-text');
+    const heartIcon = document.getElementById('heart-icon');
+    const testToast = document.getElementById('test-toast');
+
+    // Pulse Wave Simulator Canvas
+    const canvas = document.getElementById('pulse-canvas');
+    const ctx = canvas.getContext('2d');
+    let wavePoints = [];
+    const maxPoints = 80;
+
+    function resizeCanvas() {
+      canvas.width = canvas.parentElement.clientWidth;
+      canvas.height = canvas.parentElement.clientHeight;
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    function drawPulseWave() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (wavePoints.length < 2) return;
+
+      ctx.beginPath();
+      ctx.strokeStyle = '#ef4444';
+      ctx.lineWidth = 2;
+      ctx.lineJoin = 'round';
+
+      const step = canvas.width / (maxPoints - 1);
+      wavePoints.forEach((val, idx) => {
+        const x = idx * step;
+        const y = canvas.height - (val / 100) * canvas.height;
+        if (idx === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    }
+
+    // Add pulse wave animation
+    let tick = 0;
+    function generatePulsePoint(hrVal) {
+      tick++;
+      const freq = (hrVal || 72) / 60;
+      const angle = tick * 0.3 * freq;
+      // Synthesize PPG pulse curve (systolic + dicrotic notch)
+      let norm = Math.sin(angle) * 30 + Math.sin(angle * 2) * 15;
+      if (norm < 0) norm = 0;
+      wavePoints.push(Math.max(10, Math.min(90, 50 + norm)));
+      if (wavePoints.length > maxPoints) wavePoints.shift();
+      drawPulseWave();
+    }
+    setInterval(() => generatePulsePoint(parseFloat(valHr.innerText) || 72), 60);
+
+    // WebSocket Connection
+    let ws = null;
+    function connectWS() {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(`${protocol}//${window.location.host}`);
+
+      ws.onopen = () => {
+        console.log('[WS] Connected to Local Bridge');
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          handleMessage(msg);
+        } catch (err) {
+          console.error('[WS] Parse error:', err);
+        }
+      };
+
+      ws.onclose = () => {
+        console.log('[WS] Disconnected, retrying in 2s...');
+        setTimeout(connectWS, 2000);
+      };
+    }
+
+    function formatUptime(ms) {
+      if (!ms || isNaN(ms)) return '--';
+      const sec = Math.floor(ms / 1000);
+      const m = Math.floor(sec / 60);
+      const s = sec % 60;
+      const h = Math.floor(m / 60);
+      return `${h}h ${m % 60}m ${s}s`;
+    }
+
+    function handleMessage(msg) {
+      if (msg.status) {
+        updateMqttStatus(msg.status);
+      }
+
+      if (msg.type === 'INIT_STATE') {
+        if (msg.latest) updateVitals(msg.latest);
+        if (msg.history && msg.history.length > 0) {
+          if (emptyRow) emptyRow.remove();
+          msg.history.forEach(addTableRow);
+        }
+      } else if (msg.type === 'TELEMETRY_PACKET') {
+        if (emptyRow) emptyRow.remove();
+        updateVitals(msg.payload);
+        addTableRow(msg.payload);
+      }
+    }
+
+    function updateMqttStatus(status) {
+      if (status.mqttStatus === 'connected') {
+        mqttBadge.className = 'flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800/80';
+        mqttStatusText.innerText = 'HiveMQ: Connected';
+      } else {
+        mqttBadge.className = 'flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-amber-950 text-amber-400 border border-amber-800/80';
+        mqttStatusText.innerText = `HiveMQ: ${status.mqttStatus}`;
+      }
+      totalPackets.innerText = status.packetCount || 0;
+    }
+
+    function updateVitals(record) {
+      const d = record.data || {};
+      
+      // Heart Rate
+      if (d.heart_rate !== undefined && d.heart_rate !== null) {
+        valHr.innerText = d.heart_rate;
+        if (d.heart_rate > 0) {
+          heartIcon.classList.add('animate-heart');
+          const bpmSec = Math.max(0.4, 60 / d.heart_rate);
+          heartIcon.style.animationDuration = `${bpmSec}s`;
+          hrStatus.innerText = 'Pulsing';
+          hrStatus.className = 'text-xs px-2.5 py-1 rounded-full font-semibold bg-red-950 text-red-400 border border-red-800/60';
+        } else {
+          heartIcon.classList.remove('animate-heart');
+          hrStatus.innerText = 'No Finger';
+          hrStatus.className = 'text-xs px-2.5 py-1 rounded-full font-semibold bg-slate-800 text-slate-400';
+        }
+      }
+
+      // SpO2
+      if (d.spo2 !== undefined && d.spo2 !== null) {
+        valSpo2.innerText = d.spo2;
+        spo2Bar.style.width = `${Math.min(100, d.spo2)}%`;
+        if (d.spo2 >= 95) {
+          spo2Status.innerText = 'Optimal';
+          spo2Status.className = 'text-xs px-2.5 py-1 rounded-full font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800/60';
+        } else if (d.spo2 >= 90) {
+          spo2Status.innerText = 'Moderate';
+          spo2Status.className = 'text-xs px-2.5 py-1 rounded-full font-semibold bg-amber-950 text-amber-400 border border-amber-800/60';
+        } else if (d.spo2 > 0) {
+          spo2Status.innerText = 'Low Hypoxia';
+          spo2Status.className = 'text-xs px-2.5 py-1 rounded-full font-semibold bg-red-950 text-red-400 border border-red-800/60';
+        } else {
+          spo2Status.innerText = 'No Signal';
+          spo2Status.className = 'text-xs px-2.5 py-1 rounded-full font-semibold bg-slate-800 text-slate-400';
+        }
+      }
+
+      // Board Temp
+      if (d.board_temp_c !== undefined && d.board_temp_c !== null) {
+        valTemp.innerText = d.board_temp_c;
+      }
+
+      // Uptime
+      if (d.uptime_ms !== undefined) {
+        valUptime.innerText = formatUptime(d.uptime_ms);
+      }
+
+      // Device info
+      if (record.deviceId) {
+        activeDeviceId.innerText = record.deviceId;
+        devicePill.innerText = 'Online';
+        devicePill.className = 'text-emerald-400 text-[10px] font-semibold';
+      }
+      if (record.receivedAt) {
+        const timeOnly = new Date(record.receivedAt).toLocaleTimeString();
+        lastSeenText.innerText = `Last packet: ${timeOnly}`;
+      }
+    }
+
+    function addTableRow(record) {
+      const d = record.data || {};
+      const tr = document.createElement('tr');
+      tr.className = 'hover:bg-slate-800/40 transition-colors border-b border-slate-800/60';
+
+      const timeOnly = record.receivedAt ? new Date(record.receivedAt).toLocaleTimeString() : '--';
+
+      tr.innerHTML = `
+        <td class="py-3 px-4 font-bold text-slate-400">#${record.id || '-'}</td>
+        <td class="py-3 px-4 text-slate-300">${timeOnly}</td>
+        <td class="py-3 px-4 text-cyan-400 font-semibold">${record.deviceId || '-'}</td>
+        <td class="py-3 px-4 ${d.heart_rate > 0 ? 'text-red-400 font-bold' : 'text-slate-500'}">${d.heart_rate ?? '-'} bpm</td>
+        <td class="py-3 px-4 ${d.spo2 >= 95 ? 'text-emerald-400 font-bold' : d.spo2 >= 90 ? 'text-amber-400' : 'text-slate-500'}">${d.spo2 ?? '-'}%</td>
+        <td class="py-3 px-4 text-amber-300">${d.board_temp_c ? d.board_temp_c + '°C' : '-'}</td>
+        <td class="py-3 px-4 text-[11px] text-slate-400 max-w-xs truncate">${JSON.stringify(d)}</td>
+      `;
+
+      // Insert at top
+      if (tableBody.firstChild) {
+        tableBody.insertBefore(tr, tableBody.firstChild);
+      } else {
+        tableBody.appendChild(tr);
+      }
+
+      // Keep only 30 rows
+      while (tableBody.children.length > 30) {
+        tableBody.removeChild(tableBody.lastChild);
+      }
+    }
+
+    // Buttons
+    document.getElementById('btn-publish-test').addEventListener('click', async () => {
+      try {
+        const res = await fetch('/api/publish-test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ deviceId: 'xiao-c6-testbench' }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`Published to ${data.publishedTopic}`);
+        }
+      } catch (err) {
+        alert('Error publishing test: ' + err.message);
+      }
+    });
+
+    document.getElementById('btn-simulate-local').addEventListener('click', async () => {
+      try {
+        await fetch('/api/simulate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            deviceId: 'xiao-c6-DEMO',
+            spo2: Math.floor(96 + Math.random() * 3),
+            heartRate: Math.floor(70 + Math.random() * 10),
+            boardTemp: (32.1 + Math.random() * 0.8).toFixed(2),
+          }),
+        });
+        showToast('Local sample simulated!');
+      } catch (err) {
+        alert('Error simulating: ' + err.message);
+      }
+    });
+
+    document.getElementById('btn-clear-log').addEventListener('click', () => {
+      tableBody.innerHTML = '';
+    });
+
+    function showToast(msg) {
+      testToast.innerText = msg;
+      testToast.classList.remove('hidden');
+      setTimeout(() => testToast.classList.add('hidden'), 3000);
+    }
+
+    connectWS();
+  </script>
+</body>
+</html>
+

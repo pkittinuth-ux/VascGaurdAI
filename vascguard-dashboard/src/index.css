@@ -1,0 +1,158 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary-50: #eff6ff;
+  --color-primary-100: #dbeafe;
+  --color-primary-200: #bfdbfe;
+  --color-primary-300: #93c5fd;
+  --color-primary-400: #60a5fa;
+  --color-primary-500: #3b82f6;
+  --color-primary-600: #2563eb;
+  --color-primary-700: #1d4ed8;
+  --color-primary-800: #1e40af;
+  --color-primary-900: #1e3a5f;
+
+  --color-medical-green: #10b981;
+  --color-medical-yellow: #f59e0b;
+  --color-medical-red: #ef4444;
+  --color-medical-blue: #0ea5e9;
+  
+  --color-surface: #f8fafc;
+  --color-surface-card: #ffffff;
+  --color-surface-dark: #0f172a;
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+  
+  html {
+    scroll-behavior: smooth;
+  }
+  
+  body {
+    font-family: 'Segoe UI', 'Noto Sans Thai', system-ui, -apple-system, sans-serif;
+    background-color: var(--color-surface);
+    color: #1e293b;
+    margin: 0;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+::-webkit-scrollbar-thumb {
+  background: #94a3b8;
+  border-radius: 3px;
+}
+
+/* Pulse animation for live badge */
+@keyframes pulse-ring {
+  0% { transform: scale(0.9); opacity: 1; }
+  100% { transform: scale(1.8); opacity: 0; }
+}
+
+.pulse-ring::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: inherit;
+  animation: pulse-ring 1.5s ease-out infinite;
+}
+
+/* PPG Wave animation */
+@keyframes ppg-wave {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.ppg-animate {
+  animation: ppg-wave 2s linear infinite;
+}
+
+/* Robot bounce */
+@keyframes robot-bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+.robot-bounce {
+  animation: robot-bounce 1.5s ease-in-out infinite;
+}
+
+/* Robot dance */
+@keyframes robot-dance {
+  0%, 100% { transform: rotate(0deg) scale(1); }
+  25% { transform: rotate(-5deg) scale(1.05); }
+  75% { transform: rotate(5deg) scale(1.05); }
+}
+
+.robot-dance {
+  animation: robot-dance 0.6s ease-in-out infinite;
+}
+
+/* Musical notes float */
+@keyframes float-note {
+  0% { transform: translateY(0) rotate(0deg); opacity: 1; }
+  100% { transform: translateY(-40px) rotate(20deg); opacity: 0; }
+}
+
+.float-note {
+  animation: float-note 1.5s ease-out infinite;
+}
+
+.float-note-delay {
+  animation: float-note 1.5s ease-out 0.5s infinite;
+}
+
+/* Shimmer loading */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.shimmer {
+  background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* Fade in */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.fade-in {
+  animation: fadeIn 0.5s ease-out forwards;
+}
+
+/* Countdown ring */
+@keyframes countdown {
+  from { stroke-dashoffset: 0; }
+  to { stroke-dashoffset: 283; }
+}
+
+/* Servo arm raise */
+@keyframes raise-arms {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(-45deg); }
+}
+
+.arm-raise-left {
+  animation: raise-arms 1s ease-out forwards;
+  transform-origin: top right;
+}
+
+.arm-raise-right {
+  animation: raise-arms 1s ease-out forwards;
+  transform-origin: top left;
+  animation-direction: reverse;
+  transform: rotate(-45deg);
+}
